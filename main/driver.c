@@ -841,7 +841,43 @@ inline __attribute__((always_inline)) IRAM_ATTR static void i2s_set_step_outputs
 // Set stepper pulse output pins
 inline __attribute__((always_inline)) IRAM_ATTR static void i2s_set_step_outputs (axes_signals_t step_outbits)
 {
-    step_outbits.value ^= settings.steppers.step_invert.mask;
+
+step_outbits.value ^= settings.steppers.step_invert.mask;
+    
+#if STEP_INJECT_ENABLE
+
+    axes_signals_t axes = { .bits = step_pulse.inject.axes.bits };
+    //axes_signals_t mask = { .bits = step_pulse.inject.claimed.bits };
+    if(axes.bits){
+        if(!axes.x) DIGITAL_OUT(X_STEP_PIN, step_outbits.x);
+        #ifdef X2_STEP_PIN
+        if(!axes.x) DIGITAL_OUT(X2_STEP_PIN, step_outbits.x);
+        #endif
+        if(!axes.y) DIGITAL_OUT(Y_STEP_PIN, step_outbits.y);
+        #ifdef Y2_STEP_PIN
+        if(!axes.y) DIGITAL_OUT(Y2_STEP_PIN, step_outbits.y);
+        #endif
+        #ifdef Z_STEP_PIN
+        if(!axes.z) DIGITAL_OUT(Z_STEP_PIN, step_outbits.z);
+        #endif
+        #ifdef Z2_STEP_PIN
+        if(!axes.z) DIGITAL_OUT(Z2_STEP_PIN, step_outbits.z);
+        #endif
+        #ifdef A_AXIS
+        if(!axes.a) DIGITAL_OUT(A_STEP_PIN, step_outbits.a);
+        #endif
+        #ifdef B_AXIS
+        if(!axes.b) DIGITAL_OUT(B_STEP_PIN, step_outbits.b);
+        #endif
+        #ifdef C_AXIS
+        if(!axes.c) DIGITAL_OUT(C_STEP_PIN, step_outbits.c);
+        #endif
+    }
+
+    else{
+    //toSet.bits |= axes.bits;
+
+#endif
     DIGITAL_OUT(X_STEP_PIN, step_outbits.x);
     DIGITAL_OUT(Y_STEP_PIN, step_outbits.y);
 #ifdef Z_STEP_PIN
@@ -865,6 +901,11 @@ inline __attribute__((always_inline)) IRAM_ATTR static void i2s_set_step_outputs
 #ifdef C_AXIS
     DIGITAL_OUT(C_STEP_PIN, step_outbits.c);
 #endif
+
+    #ifdef STEP_INJECT_ENABLE
+    }
+    #endif
+
 }
 
 #endif // !SQUARING_ENABLED
@@ -897,6 +938,87 @@ IRAM_ATTR static void I2SStepperGoIdle (bool clear_signals)
         i2s_out_delay();
     }
 }
+
+#if STEP_INJECT_ENABLE
+
+static void I2SStepperClaimMotor (uint_fast8_t axis_id, bool claim)
+{
+    if(claim)
+        step_pulse.inject.claimed.mask |= ((1 << axis_id) & AXES_BITMASK);
+    else {
+        step_pulse.inject.claimed.mask &= ~(1 << axis_id);
+        step_pulse.inject.axes.bits = step_pulse.inject.claimed.bits; // For now...
+    }
+}
+
+
+//experimental
+static void I2SStepperOutputStep(axes_signals_t step_out, axes_signals_t dir_out)
+{
+        axes_signals_t axes = { .bits = step_out.bits };
+        axes_signals_t mask = { .bits = step_pulse.inject.claimed.bits };
+        step_pulse.inject.out = step_out;
+        step_pulse.inject.axes.bits = mask.bits; 
+
+        if(axes.bits) {
+            axes.value ^= settings.steppers.step_invert.mask;
+            if(mask.x) DIGITAL_OUT(X_STEP_PIN, axes.x);
+            #ifdef X2_STEP_PIN
+            if(mask.x) DIGITAL_OUT(X2_STEP_PIN, axes.x);
+            #endif
+            if(mask.y) DIGITAL_OUT(Y_STEP_PIN, axes.y);
+            #ifdef Y2_STEP_PIN
+            if(mask.y) DIGITAL_OUT(Y2_STEP_PIN, axes.y);
+            #endif
+            #ifdef Z_STEP_PIN
+            if(mask.z) DIGITAL_OUT(Z_STEP_PIN, axes.z);
+            #endif
+            #ifdef Z2_STEP_PIN
+            if(mask.z) DIGITAL_OUT(Z2_STEP_PIN, axes.z);
+            #endif
+            #ifdef A_AXIS
+            if(mask.a) DIGITAL_OUT(A_STEP_PIN, axes.a);
+            #endif
+            #ifdef B_AXIS
+            if(mask.b) DIGITAL_OUT(B_STEP_PIN, axes.b);
+            #endif
+            #ifdef C_AXIS
+            if(mask.c) DIGITAL_OUT(C_STEP_PIN, axes.c);
+            #endif
+
+            //in my books this is a sin to be but as far as 
+            //I can tell, this just another way of doing
+            //i2s_out_push_sample
+            //I personally hate using delays buts this does work
+            //maybe change to a timer for clearing the bits?
+            delay_us(i2s_step_length + 1); 
+
+            if(mask.x) DIGITAL_OUT(X_STEP_PIN, !axes.x);
+            #ifdef X2_STEP_PIN
+            if(mask.x) DIGITAL_OUT(X2_STEP_PIN, !axes.x);
+            #endif
+            if(mask.y) DIGITAL_OUT(Y_STEP_PIN, !axes.y);
+            #ifdef Y2_STEP_PIN
+            if(mask.y) DIGITAL_OUT(Y2_STEP_PIN, !axes.y);
+            #endif
+            #ifdef Z_STEP_PIN
+            if(mask.z) DIGITAL_OUT(Z_STEP_PIN, !axes.z);
+            #endif
+            #ifdef Z2_STEP_PIN
+            if(mask.z) DIGITAL_OUT(Z2_STEP_PIN, !axes.z);
+            #endif
+            #ifdef A_AXIS
+            if(mask.a) DIGITAL_OUT(A_STEP_PIN, !axes.a);
+            #endif
+            #ifdef B_AXIS
+            if(mask.b) DIGITAL_OUT(B_STEP_PIN, !axes.b);
+            #endif
+            #ifdef C_AXIS
+            if(mask.c) DIGITAL_OUT(C_STEP_PIN, !axes.c);
+            #endif
+        }
+}
+#endif
 
 #else // RMT stepping
 
@@ -2957,16 +3079,20 @@ bool driver_init (void)
     hal.stepper.enable = stepperEnable;
     hal.stepper.cycles_per_tick = I2SStepperCyclesPerTick;
     hal.stepper.pulse_start = I2SStepperPulseStart;
+#if STEP_INJECT_ENABLE
+    hal.stepper.output_step = I2SStepperOutputStep;
+    hal.stepper.claim_motor = I2SStepperClaimMotor;
+#endif
 #else
     hal.stepper.wake_up = stepperWakeUp;
     hal.stepper.go_idle = stepperGoIdle;
     hal.stepper.enable = stepperEnable;
     hal.stepper.cycles_per_tick = stepperCyclesPerTick;
     hal.stepper.pulse_start = stepperPulseStart;
-#endif
 #if STEP_INJECT_ENABLE
     hal.stepper.output_step = stepperOutputStep;
-    hal.stepper.claim_motor = stepperClaimMotor;
+    hal.stepper.claim_motor = stepperClaimMotor; 
+#endif
 #endif
     hal.stepper.motor_iterator = motor_iterator;
 #ifdef GANGING_ENABLED

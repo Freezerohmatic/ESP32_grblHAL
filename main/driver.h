@@ -182,7 +182,7 @@ typedef struct {
 #endif
 
 #if defined(USE_I2S_OUT) && STEP_INJECT_ENABLE
-#error "Step injection not yet possible with I2S streaming!"
+//#warning "Step injection in development with I2S streaming! May not be reliable, use at own risk"
 #endif
 
 #if DRIVER_SPINDLE_PWM_ENABLE && !defined(SPINDLE_PWM_PIN)
